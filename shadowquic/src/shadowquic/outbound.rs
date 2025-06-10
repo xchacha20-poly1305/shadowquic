@@ -30,6 +30,14 @@ use crate::{
     shadowquic::{handle_udp_recv_ctrl, handle_udp_send},
 };
 
+#[cfg(unix)]
+use sendfd::SendWithFd;
+#[cfg(unix)]
+use std::{
+    os::unix::io::{AsRawFd, RawFd},
+    path::Path,
+};
+
 use super::{IDStore, SQConn, handle_udp_packet_recv, inbound::Unsplit};
 
 pub struct ShadowQuicClient {
@@ -44,6 +52,39 @@ pub struct ShadowQuicClient {
 }
 impl ShadowQuicClient {
     pub fn new(cfg: ShadowQuicClientCfg) -> Self {
+        // Set protect path on unix
+        #[cfg(unix)]
+        {
+            if let Some(protect_path) = &cfg.protect_path {
+                let socket_result: io::Result<UdpSocket> = (|| {
+                    let socket = UdpSocket::bind("[::]:0")?;
+                    let fd = socket.as_raw_fd();
+                    let protect_result = std::thread::spawn({
+                        let protect_path = protect_path.clone();
+                        move || Self::vpn_protect(&protect_path, fd)
+                    });
+
+                    match protect_result.join() {
+                        Ok(Ok(())) => Ok(socket),
+                        Ok(Err(e)) => Err(e),
+                        Err(_) => Err(io::Error::other("panic while protecting socket")),
+                    }
+                })();
+
+                match socket_result {
+                    Ok(protected_socket) => {
+                        return Self::new_with_socket(cfg, protected_socket);
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to protect socket: {}. Falling back to default socket creation.",
+                            e,
+                        );
+                    }
+                }
+            }
+        }
+
         let config = Self::gen_quic_cfg(&cfg);
         let mut end =
             Endpoint::client("[::]:0".parse().unwrap()).expect("Can't create quic endpoint");
@@ -59,6 +100,27 @@ impl ShadowQuicClient {
             over_stream: cfg.over_stream,
         }
     }
+    #[cfg(unix)]
+    fn vpn_protect(protect_path: &Path, fd: RawFd) -> io::Result<()> {
+        use std::{io::Read, os::unix::net::UnixStream};
+        // Connect to VPN protector
+        let mut stream = UnixStream::connect(protect_path)?;
+        let dummy: [u8; 1] = [1];
+        let fds: [RawFd; 1] = [fd];
+
+        stream.send_with_fd(&dummy, &fds)?;
+
+        let mut response = [0u8];
+        stream.read_exact(&mut response)?;
+        stream.shutdown(std::net::Shutdown::Both)?;
+
+        if response[0] == 0xFF {
+            Err(io::Error::other("protect() failed"))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn new_with_socket(cfg: ShadowQuicClientCfg, socket: UdpSocket) -> Self {
         let config = Self::gen_quic_cfg(&cfg);
         let runtime = quinn::default_runtime()

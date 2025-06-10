@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -153,6 +154,7 @@ pub struct SocksClientCfg {
 /// congestion-control: bbr
 /// zero-rtt: true
 /// over-stream: false  # true for udp over stream, false for udp over datagram
+/// protect-path: "protect_path" # Just for Android developer.
 /// ```
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case", default)]
@@ -193,6 +195,9 @@ pub struct ShadowQuicClientCfg {
     /// Disabled by default.
     #[serde(default = "default_keep_alive_interval")]
     pub keep_alive_interval: u32,
+    /// A path to send fd to the service that provide "protect" function on Android.
+    #[serde(default)]
+    pub protect_path: Option<PathBuf>,
 }
 
 impl Default for ShadowQuicClientCfg {
@@ -209,6 +214,7 @@ impl Default for ShadowQuicClientCfg {
             over_stream: Default::default(),
             min_mtu: default_min_mtu(),
             keep_alive_interval: default_keep_alive_interval(),
+            protect_path: Default::default(),
         }
     }
 }
