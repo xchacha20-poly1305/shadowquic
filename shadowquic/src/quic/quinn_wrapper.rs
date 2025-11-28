@@ -31,6 +31,22 @@ pub struct Endpoint {
     inner: quinn::Endpoint,
     zero_rtt: bool,
 }
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn apply_bind_interface(sock: &Socket, iface: &Option<String>) -> io::Result<()> {
+    if let Some(iface) = iface {
+        sock.bind_device(Some(iface.as_bytes()))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+fn apply_bind_interface(_sock: &Socket, iface: &Option<String>) -> io::Result<()> {
+    if iface.is_some() {
+        tracing::warn!("bind-interface is only supported on Linux/Android; ignoring");
+    }
+    Ok(())
+}
 impl Deref for Endpoint {
     type Target = quinn::Endpoint;
 
@@ -128,10 +144,12 @@ impl QuicClient for Endpoint {
             if let Err(e) = socket.set_only_v6(false) {
                 tracing::warn!(%e, "unable to make socket dual-stack");
             }
+            apply_bind_interface(&socket, &cfg.bind_interface)?;
             socket.bind(&bind_addr.into())?;
         } else {
             socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
             let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+            apply_bind_interface(&socket, &cfg.bind_interface)?;
             socket.bind(&bind_addr.into())?;
         }
 

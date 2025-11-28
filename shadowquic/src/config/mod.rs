@@ -148,6 +148,7 @@ pub struct SocksClientCfg {
 /// example:
 /// ```yaml
 /// addr: "12.34.56.7:1089" # or "[12:ff::ff]:1089" for dualstack
+/// bind-interface: "eth0" # optional, Linux/Android only
 /// password: "12345678"
 /// username: "87654321"
 /// server-name: "echo.free.beeceptor.com" # must be the same as jls_upstream in server
@@ -160,6 +161,9 @@ pub struct SocksClientCfg {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct ShadowQuicClientCfg {
+    /// Optional network interface name to bind the client socket to (SO_BINDTODEVICE).
+    /// Only works on Linux/Android and requires root or CAP_NET_RAW.
+    pub bind_interface: Option<String>,
     /// username, must be the same as the server
     pub username: String,
     /// password, must be the same as the server
@@ -205,6 +209,7 @@ pub struct ShadowQuicClientCfg {
 impl Default for ShadowQuicClientCfg {
     fn default() -> Self {
         Self {
+            bind_interface: None,
             password: Default::default(),
             username: Default::default(),
             addr: Default::default(),
